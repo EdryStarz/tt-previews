@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Хесус Thumbnail — одностраничный сайт</title>
+  <style>
+    :root { --bg:#0b0b0c; --panel:#161616; --muted:#a1a1aa; --acc:#10b981; }
+    *{box-sizing:border-box} body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:#fff}
+    .wrap{max-width:980px;margin:0 auto;padding:24px}
+    h1{font-size:24px;margin:0 0 12px;font-weight:800}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .card{background:var(--panel);border-radius:16px;padding:16px}
+    label{font-size:12px;color:var(--muted)}
+    input[type="text"],input[type="url"],input[type="file"]{width:100%;margin-top:6px;padding:10px;border-radius:12px;border:1px solid #2a2a2a;background:#0f0f11;color:#fff}
+    button{appearance:none;border:0;border-radius:12px;padding:10px 14px;font-weight:700;cursor:pointer}
+    .btn{background:#2a2a2a;color:#fff}
+    .btn:hover{background:#323232}
+    .btn-prim{background:var(--acc)}
+    .btn-prim:hover{filter:brightness(1.05)}
+    .hint{font-size:12px;color:var(--muted)}
+    .error{color:#f87171;font-size:13px}
+    .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .thumb{width:100%;border-radius:12px;background:#0f0f11;display:block}
+    canvas{width:360px;height:640px;border-radius:18px;display:block;background:#111;margin-top:16px}
+    .footer{margin-top:18px;font-size:12px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Хесус Thumbnail — одностраничный сайт</h1>
+    <div class="card">
+      <div class="grid">
+        <div>
+          <label>Текст на изображении</label>
+          <input id="title" type="text" placeholder="Хесус про встречу Трампа и Путина" value="Хесус про встречу Трампа и Путина" />
+        </div>
+        <div class="actions" style="align-items:flex-end">
+          <button id="btnDemo" class="btn">Демо</button>
+          <button id="btnMake" class="btn-prim">Сделать изображение</button>
+          <button id="btnReset" class="btn">Сбросить</button>
+          <button id="btnDownload" class="btn" style="display:none">Скачать PNG</button>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <div>
+          <label>Фото лица (файл или URL)</label>
+          <input id="faceFile" type="file" accept="image/*" />
+          <input id="faceURL" type="url" placeholder="или ссылка на лицо (URL с CORS)" />
+          <img id="facePreview" class="thumb" alt="face preview" />
+        </div>
+        <div>
+          <label>Фото контекста (файл или URL)</label>
+          <input id="ctxFile" type="file" accept="image/*" />
+          <input id="ctxURL" type="url" placeholder="или ссылка на кадр/фон (URL с CORS)" />
+          <img id="ctxPreview" class="thumb" alt="context preview" />
+        </div>
+      </div>
+      <div class="actions">
+        <span id="msg" class="error"></span>
+        <span class="hint">Поддерживаются файлы JPG/PNG. При ссылках источник должен разрешать CORS.</span>
+      </div>
+    </div>
+
+    <canvas id="cv" width="1080" height="1920"></canvas>
+    <div class="footer">Размер результата: 1080×1920 (TikTok). Текст автоматически центрируется между карточкой и портретом и не выходит за рамки.</div>
+  </div>
+
+<script>
+const W=1080,H=1920;const cv=document.getElementById('cv');const ctx=cv.getContext('2d');
+const $=id=>document.getElementById(id);
+const state={face:null,ctx:null};
+
+const DEMO_FACE="data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'>\
+  <defs><radialGradient id='g' cx='50%' cy='45%'><stop offset='0%' stop-color='%23ffffff'/><stop offset='100%' stop-color='%2309f'/></radialGradient></defs>\
+  <rect width='400' height='400' fill='%2309f'/>\
+  <circle cx='200' cy='200' r='160' fill='url(%23g)'/>\
+  <circle cx='160' cy='180' r='20' fill='%23000'/>\
+  <circle cx='240' cy='180' r='20' fill='%23000'/>\
+  <rect x='150' y='250' width='100' height='18' rx='9' fill='%23000'/>\
+</svg>";
+const DEMO_CONTEXT="data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360' viewBox='0 0 640 360'>\
+  <defs>\
+    <linearGradient id='lg' x1='0' y1='0' x2='1' y2='1'>\
+      <stop offset='0%' stop-color='%23333'/>\
+      <stop offset='100%' stop-color='%23999'/>\
+    </linearGradient>\
+  </defs>\
+  <rect width='640' height='360' fill='url(%23lg)'/>\
+  <rect x='40' y='40' width='560' height='280' rx='18' fill='%23fff' opacity='0.2'/>\
+  <text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='%23fff' font-size='32' font-family='Arial'>DEMO CONTEXT</text>\
+</svg>";
+
+function readAsDataURL(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=rej;r.readAsDataURL(file);});}
+function loadImage(src){return new Promise((res,rej)=>{const im=new Image();if(/^https?:/i.test(src))im.crossOrigin='anonymous';im.onload=()=>res(im);im.onerror=()=>rej(new Error('Image load failed'));im.src=src;});}
+function drawCover(ctx,img,x,y,w,h){const ir=img.width/img.height,cr=w/h;let dw,dh,dx,dy;if(ir>cr){dh=h;dw=img.width*(h/img.height);dx=(w-dw)/2;dy=0;}else{dw=w;dh=img.height*(w/img.width);dx=0;dy=(h-dh)/2;}ctx.drawImage(img,x+dx,y+dy,dw,dh);} 
+function roundRect(ctx,x,y,w,h,r=24){ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();}
+function drawFaceBubble(ctx,face,size,x,y){ctx.save();ctx.shadowColor='rgba(0,0,0,0.55)';ctx.shadowBlur=40;ctx.shadowOffsetY=8;ctx.beginPath();ctx.arc(x+size/2,y+size/2,size/2,0,Math.PI*2);ctx.clip();drawCover(ctx,face,x,y,size,size);ctx.restore();ctx.save();ctx.lineWidth=16;ctx.strokeStyle='#fff';ctx.beginPath();ctx.arc(x+size/2,y+size/2,size/2-8,0,Math.PI*2);ctx.stroke();ctx.restore();}
+function wrapLines(ctx,text,maxWidth){const words=(text||'').split(/\s+/).filter(Boolean);const lines=[];let line='';for(let i=0;i<words.length;i++){const test=(line?line+' ':'')+words[i];if(ctx.measureText(test).width>maxWidth&&line){lines.push(line);line=words[i];}else{line=test;}}if(line)lines.push(line);return lines;}
+function layoutCenteredText(ctx,text,boxW,boxH,min=36,max=140){let lo=min,hi=max,best=min,bestLines=[''];while(lo<=hi){const mid=Math.floor((lo+hi)/2);ctx.font=`800 ${mid}px Arial, system-ui`;const lines=wrapLines(ctx,text,boxW);const lh=mid*1.15;const totalH=lines.length*lh;let widest=0;for(const l of lines) widest=Math.max(widest,ctx.measureText(l).width);const fits=totalH<=boxH&&widest<=boxW;if(fits){best=mid;bestLines=lines;lo=mid+1;}else hi=mid-1;}const lineHeight=best*1.15;const totalHeight=bestLines.length*lineHeight;return{size:best,lines:bestLines,lineHeight,totalHeight};}
+function drawTextBetween(ctx,text,topY,bottomY){const pad=20,boxX=60,boxW=W-120,boxY=Math.max(topY,0)+pad,boxH=Math.max(40,bottomY-topY)-pad*2;const {size,lines,lineHeight,totalHeight}=layoutCenteredText(ctx,text,boxW,boxH,36,140);ctx.save();ctx.fillStyle='rgba(0,0,0,0.25)';roundRect(ctx,boxX-20,boxY-20,boxW+40,totalHeight+40,24);ctx.fill();ctx.restore();ctx.save();ctx.textAlign='center';ctx.textBaseline='top';ctx.lineJoin='round';ctx.miterLimit=2;ctx.font=`800 ${size}px Arial, system-ui`;ctx.lineWidth=Math.max(10,Math.floor(size*0.10));ctx.strokeStyle='rgba(0,0,0,0.9)';ctx.fillStyle='#fff';let y=boxY+(boxH-totalHeight)/2;const x=W/2;for(const line of lines){ctx.strokeText(line,x,y);ctx.fillText(line,x,y);y+=lineHeight;}ctx.restore();}
+function compose(face,contextImg,title){ctx.clearRect(0,0,W,H);ctx.save();try{ctx.filter='blur(24px) brightness(0.8)';drawCover(ctx,contextImg,0,0,W,H);}finally{ctx.restore();}
+  const cardW=Math.min(800,W*0.8),cardH=Math.round(cardW*9/16),cardX=(W-cardW)/2,cardY=120;ctx.save();roundRect(ctx,cardX,cardY,cardW,cardH,36);ctx.clip();drawCover(ctx,contextImg,cardX,cardY,cardW,cardH);ctx.restore();ctx.lineWidth=8;ctx.strokeStyle='#fff';roundRect(ctx,cardX,cardY,cardW,cardH,36);ctx.stroke();const size=Math.round(W*0.4),fx=(W-size)/2,fy=H-size-180;drawFaceBubble(ctx,face,size,fx,fy);drawTextBetween(ctx,title,cardY+cardH+30,fy-30);}
+function downloadURI(uri,name){const a=document.createElement('a');a.href=uri;a.download=name;document.body.appendChild(a);a.click();a.remove();}
+
+async function fetchSrc(fileInput,urlInput,preview){let src=null;const f=fileInput.files&&fileInput.files[0];if(f){src=await readAsDataURL(f);}else if(urlInput.value){src=urlInput.value.trim();}preview.src=src||'';return src;}
+
+document.getElementById('btnDemo').onclick=async()=>{state.face=await loadImage(DEMO_FACE);state.ctx=await loadImage(DEMO_CONTEXT);compose(state.face,state.ctx,document.getElementById('title').value);document.getElementById('btnDownload').style.display='inline-block';};
+document.getElementById('btnMake').onclick=async()=>{ document.getElementById('msg').textContent=''; try{
+  const faceSrc=await fetchSrc(document.getElementById('faceFile'),document.getElementById('faceURL'),document.getElementById('facePreview'));
+  const ctxSrc=await fetchSrc(document.getElementById('ctxFile'),document.getElementById('ctxURL'),document.getElementById('ctxPreview'));
+  if(!faceSrc||!ctxSrc){document.getElementById('msg').textContent='Нужны оба изображения (файл или URL).';return;}
+  const [face,contextImg]=await Promise.all([loadImage(faceSrc),loadImage(ctxSrc)]);
+  state.face=face; state.ctx=contextImg; compose(face,contextImg,document.getElementById('title').value||'');
+  document.getElementById('btnDownload').style.display='inline-block';
+}catch(e){console.error(e);document.getElementById('msg').textContent='Ошибка: '+e.message+' (проверьте ссылки и CORS)';}}
+document.getElementById('btnReset').onclick=()=>{['faceFile','ctxFile','faceURL','ctxURL'].forEach(id=>{document.getElementById(id).value='';});document.getElementById('facePreview').src='';document.getElementById('ctxPreview').src='';document.getElementById('msg').textContent='';ctx.clearRect(0,0,W,H);document.getElementById('btnDownload').style.display='none';}
+document.getElementById('btnDownload').onclick=()=>downloadURI(cv.toDataURL('image/png'),'hesus_thumbnail.png');
+</script>
+</body>
+</html>
